@@ -274,7 +274,6 @@ async def login(auth: AuthSchema, db: AsyncSession = Depends(get_db)):
 # ---------- Person CRUD (owner-scoped, per-user numbering) ----------
 @app.post("/persons")
 async def create_person(p: PersonCreate, db: AsyncSession = Depends(get_db), current_user: AuthUser = Depends(get_current_user)):
-    # compute next per-user user_person_id (max + 1)
     result = await db.execute(select(func.max(Person.user_person_id)).where(Person.owner_id == current_user.id))
     max_val = result.scalar()
     next_user_person_id = (max_val or 0) + 1
@@ -301,13 +300,13 @@ async def list_persons(
     db: AsyncSession = Depends(get_db),
     current_user: AuthUser = Depends(get_current_user),
 ):
-    # owner-scoped list
     q = select(Person).where(Person.owner_id == current_user.id)
     if search:
         q = q.where(func.lower(Person.name).like(f"%{search.strip().lower()}%"))
     # prefer ordering by per-user id (if present)
-    if hasattr(Person, "user_person_id"):
-        q = q.order_by(Person.user_person_id)
+    lookup_pref = _lookup_column()
+    if lookup_pref is not None:
+        q = q.order_by(lookup_pref)
     else:
         q = q.order_by(Person.id)
     result = await db.execute(q.offset(skip).limit(limit))
@@ -316,8 +315,10 @@ async def list_persons(
 
 
 def _lookup_column():
-    """Helper to choose lookup column: prefer user_person_id when available, else id."""
-    return getattr(Person, "user_person_id", None) or Person.id
+    """Helper to choose lookup column: prefer user_person_id when available, else id.
+       Always returns a SQLAlchemy column object."""
+    col = getattr(Person, "user_person_id", None)
+    return col if col is not None else Person.id
 
 
 @app.get("/persons/{person_id}")
