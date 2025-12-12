@@ -6,6 +6,7 @@
   --accent: #0b76ff;
   --error: #ff4d4f;
   --success: #52c41a;
+  --border: #ddd;
 }
 
 /* Body */
@@ -22,26 +23,28 @@ main {
   margin: 0 auto;
 }
 
-/* Forms */
-form {
-  margin-bottom: 20px;
-}
-
-input, select, button {
+/* Inputs & selects */
+input, select, textarea {
   display: block;
   width: 100%;
-  padding: 8px 10px;
-  margin: 6px 0;
+  padding: 10px 12px;
+  margin: 8px 0;
   border-radius: 6px;
-  border: 1px solid #ddd;
+  border: 1px solid var(--border);
+  font-size: 1rem;
   box-sizing: border-box;
 }
 
+/* Buttons (default are not full width now) */
 button {
+  display: inline-block;
+  padding: 10px 16px;
   background: var(--accent);
   color: white;
   border: none;
+  border-radius: 6px;
   cursor: pointer;
+  font-size: 1rem;
   transition: background 0.2s;
 }
 
@@ -80,6 +83,23 @@ button:hover {
   display: none;
 }
 
+/* SEARCH BAR — FIXED */
+.search-bar {
+  display: flex;
+  width: 100%;
+  gap: 12px;
+  margin-bottom: 15px;
+  align-items: center;
+}
+
+.search-bar .search-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 12px;
+  font-size: 1rem;
+}
+
+
 /* People List */
 ul#people-list {
   list-style: none;
@@ -113,27 +133,66 @@ li.person {
   margin-left: 5px;
 }
 
-/* Search bar */
-.search-bar {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 10px;
-}
-
-.search-bar input {
-  flex: 1;
-}
-
 /* Responsive */
 @media (max-width: 600px) {
   .search-bar {
     flex-direction: column;
   }
-  .person {
+  .btn-search {
+    width: 100%;
+  }
+  li.person {
     flex-direction: column;
     align-items: flex-start;
   }
   .person .actions {
     margin-top: 6px;
   }
+}
+/* Defensive reset for buttons so none will be forced full-width by older rules */
+button {
+  display: inline-block !important;
+  width: auto !important;
+  box-sizing: border-box;
+  white-space: nowrap;
+}
+
+/* Search bar container: horizontal flex layout */
+.search-bar {
+  display: flex;
+  gap: 12px;
+  width: 100%;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+/* Search input should take remaining space and be allowed to shrink */
+.search-bar .search-input {
+  flex: 1 1 auto;   /* grow and shrink as needed */
+  min-width: 0;     /* crucial so it can shrink inside flex */
+  padding: 12px;
+  font-size: 1rem;
+  border-radius: 6px;
+}
+
+/* Search button: fixed/auto size, never stretch */
+.search-bar .btn-search {
+  flex: 0 0 auto;   /* do not grow or shrink */
+  width: auto;
+  padding: 10px 16px;
+  font-size: 1rem;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+/* If some global rule is still forcing widths, make it even stronger for search row */
+.search-bar .search-input,
+.search-bar .btn-search {
+  max-width: 100%;
+}
+
+/* Mobile: stack vertically */
+@media (max-width: 600px) {
+  .search-bar { flex-direction: column; align-items: stretch; }
+  .search-bar .btn-search { width: 100%; }
 }
