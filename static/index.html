@@ -1,9 +1,3 @@
-<!--
-File: index.html
-Place this file in your backend's static/ directory as index.html (the app already redirects / to /static/index.html).
-Create a separate file static/styles.css using the CSS provided at the bottom of this document (search for "/* styles.css */").
--->
-
 <!doctype html>
 <html lang="en">
 <head>
@@ -139,92 +133,124 @@ Create a separate file static/styles.css using the CSS provided at the bottom of
 
     function showMessage(msg, type = 'info', timeout = 4000) {
       const m = el('message');
+      if (!m) return console.warn('message element missing');
       m.textContent = msg;
       m.className = 'message ' + type;
       m.classList.remove('hidden');
       if (timeout > 0) setTimeout(() => m.classList.add('hidden'), timeout);
     }
 
-    function apiFetch(path, opts = {}) {
+    async function apiFetch(path, opts = {}) {
       const headers = opts.headers || {};
-      headers['Content-Type'] = 'application/json';
+      if (opts.body) headers['Content-Type'] = 'application/json';
       if (state.token) headers['Authorization'] = 'Bearer ' + state.token;
-      return fetch(path, { ...opts, headers }).then(async r => {
-        const ct = r.headers.get('content-type') || '';
-        let body = null;
-        if (ct.includes('application/json')) body = await r.json();
-        if (!r.ok) {
-          const msg = body?.detail || body?.message || (body && JSON.stringify(body)) || r.statusText;
-          throw new Error(msg);
-        }
-        return body;
-      });
+      const response = await fetch(path, { ...opts, headers });
+      const ct = response.headers.get('content-type') || '';
+      let body = null;
+      if (ct.includes('application/json')) body = await response.json();
+      if (!response.ok) {
+        const msg = body?.detail || body?.message || response.statusText || 'Request failed';
+        throw new Error(msg);
+      }
+      return body;
     }
 
-    // --- Auth UI ---
+    // --- Auth UI (single-init guard) ---
     const auth = {
+      _inited: false,
       init() {
+        if (this._inited) return;
+        this._inited = true;
+
         this.loginForm = el('loginForm');
         this.signupForm = el('signupForm');
         this.tabLogin = el('tabLogin');
         this.tabSignup = el('tabSignup');
+        // find submit buttons (for disabling while request in-flight)
+        this.loginBtn = this.loginForm.querySelector('button[type="submit"]');
+        this.signupBtn = this.signupForm.querySelector('button[type="submit"]');
 
         this.tabLogin.addEventListener('click', () => this.showLogin());
         this.tabSignup.addEventListener('click', () => this.showSignup());
         this.loginForm.addEventListener('submit', e => this.handleLogin(e));
         this.signupForm.addEventListener('submit', e => this.handleSignup(e));
       },
+
       showLogin() {
         this.tabLogin.classList.add('active');
         this.tabSignup.classList.remove('active');
         this.loginForm.classList.remove('hidden');
         this.signupForm.classList.add('hidden');
       },
+
       showSignup() {
         this.tabLogin.classList.remove('active');
         this.tabSignup.classList.add('active');
         this.loginForm.classList.add('hidden');
         this.signupForm.classList.remove('hidden');
       },
+
       async handleLogin(e) {
         e.preventDefault();
         const fd = new FormData(this.loginForm);
+        const username = fd.get('username');
+        const password = fd.get('password');
+        if (!username || !password) return showMessage('Enter username and password', 'error');
+
         try {
-          const body = { username: fd.get('username'), password: fd.get('password') };
+          if (this.loginBtn) this.loginBtn.disabled = true;
+          const body = { username, password };
           const res = await apiFetch('/auth/login', { method: 'POST', body: JSON.stringify(body) });
           state.token = res.access_token;
-          state.username = fd.get('username');
+          state.username = username;
           localStorage.setItem('pm_token', state.token);
           localStorage.setItem('pm_user', state.username);
-          initApp();
+
+          // DON'T re-init the whole app — only update visibility
+          appUI.updateAuthVisibility();
           showMessage('Logged in');
         } catch (err) {
           showMessage('Login failed: ' + err.message, 'error');
+        } finally {
+          if (this.loginBtn) this.loginBtn.disabled = false;
         }
       },
+
       async handleSignup(e) {
         e.preventDefault();
         const fd = new FormData(this.signupForm);
+        const username = fd.get('username');
+        const password = fd.get('password');
+        if (!username || !password) return showMessage('Enter username and password', 'error');
+
         try {
-          const body = { username: fd.get('username'), password: fd.get('password') };
+          if (this.signupBtn) this.signupBtn.disabled = true;
+          const body = { username, password };
           await apiFetch('/auth/signup', { method: 'POST', body: JSON.stringify(body) });
           showMessage('Account created — you can now log in');
           this.showLogin();
         } catch (err) {
           showMessage('Signup failed: ' + err.message, 'error');
+        } finally {
+          if (this.signupBtn) this.signupBtn.disabled = false;
         }
       }
     };
 
-    // --- App UI ---
+    // --- App UI (single-init guard) ---
     const appUI = {
+      _inited: false,
       init() {
+        if (this._inited) return;
+        this._inited = true;
+
         this.appArea = el('appArea');
         this.authCard = el('auth');
         this.userbox = el('userbox');
         this.usernameDisplay = el('usernameDisplay');
         this.logoutBtn = el('logoutBtn');
         this.createForm = el('createForm');
+        this.createBtn = this.createForm.querySelector('button[type="submit"]');
         this.peopleBody = el('peopleBody');
         this.searchInput = el('searchInput');
         this.searchBtn = el('searchBtn');
@@ -240,11 +266,21 @@ Create a separate file static/styles.css using the CSS provided at the bottom of
         this.createForm.addEventListener('submit', e => this.createPerson(e));
         this.searchBtn.addEventListener('click', () => this.search());
         this.clearSearchBtn.addEventListener('click', () => this.clearSearch());
-        this.searchInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') this.search(); });
+        this.searchInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); this.search(); } });
         this.prevPage.addEventListener('click', () => this.changePage(-1));
         this.nextPage.addEventListener('click', () => this.changePage(1));
         this.editForm.addEventListener('submit', e => this.saveEdit(e));
         this.cancelEdit.addEventListener('click', () => this.closeEdit());
+
+        // event delegation for action buttons in the table
+        this.peopleBody.addEventListener('click', (ev) => {
+          const btn = ev.target.closest && ev.target.closest('button[data-action]');
+          if (!btn) return;
+          const action = btn.getAttribute('data-action');
+          const id = Number(btn.getAttribute('data-id'));
+          if (action === 'edit') this.openEdit(id);
+          if (action === 'delete') this.deletePerson(id);
+        });
 
         // initial visibility
         this.updateAuthVisibility();
@@ -253,13 +289,13 @@ Create a separate file static/styles.css using the CSS provided at the bottom of
       updateAuthVisibility() {
         const loggedIn = !!state.token;
         if (loggedIn) {
-          el('auth').classList.add('hidden');
+          this.authCard.classList.add('hidden');
           this.appArea.classList.remove('hidden');
           this.userbox.classList.remove('hidden');
           this.usernameDisplay.textContent = state.username || '';
           this.loadPeople();
         } else {
-          el('auth').classList.remove('hidden');
+          this.authCard.classList.remove('hidden');
           this.appArea.classList.add('hidden');
           this.userbox.classList.add('hidden');
         }
@@ -283,13 +319,17 @@ Create a separate file static/styles.css using the CSS provided at the bottom of
           age: Number(fd.get('age')),
           gender: fd.get('gender') || 'Other',
         };
+
         try {
+          if (this.createBtn) this.createBtn.disabled = true;
           const res = await apiFetch('/persons', { method: 'POST', body: JSON.stringify(body) });
           showMessage(res.message || 'Created');
           this.createForm.reset();
           this.loadPeople();
         } catch (err) {
           showMessage('Create failed: ' + err.message, 'error');
+        } finally {
+          if (this.createBtn) this.createBtn.disabled = false;
         }
       },
 
@@ -302,8 +342,8 @@ Create a separate file static/styles.css using the CSS provided at the bottom of
           const url = '/persons?' + q.join('&');
           const res = await apiFetch(url, { method: 'GET' });
           this.renderList(res.items || []);
-          this.pageInfo.textContent = `Showing ${res.items.length} (skip ${state.skip})`;
-          this.totalLoaded = (res.items || []).length;
+          this.pageInfo.textContent = `Showing ${res.items ? res.items.length : 0} (skip ${state.skip})`;
+          state.totalLoaded = (res.items || []).length;
         } catch (err) {
           showMessage('Failed to load people: ' + err.message, 'error');
         }
@@ -326,22 +366,11 @@ Create a separate file static/styles.css using the CSS provided at the bottom of
           `;
           this.peopleBody.appendChild(tr);
         });
-
-        // attach handlers
-        this.peopleBody.querySelectorAll('button[data-action]').forEach(btn => {
-          btn.addEventListener('click', (e) => {
-            const id = btn.getAttribute('data-id');
-            const action = btn.getAttribute('data-action');
-            if (action === 'edit') this.openEdit(Number(id));
-            if (action === 'delete') this.deletePerson(Number(id));
-          });
-        });
       },
 
       async openEdit(personId) {
         try {
-          // default uses per-user id lookup — backend is set up this way
-          const p = await apiFetch('/persons/' + personId + '?', { method: 'GET' });
+          const p = await apiFetch('/persons/' + personId, { method: 'GET' });
           this.editForm.id.value = personId;
           this.editForm.name.value = p.name;
           this.editForm.roll.value = p.roll;
@@ -418,16 +447,12 @@ Create a separate file static/styles.css using the CSS provided at the bottom of
         .replace(/'/g, '&#039;');
     }
 
-    // --- Init app ---
-    function initApp() {
+    // --- Single initialization on load ---
+    window.addEventListener('DOMContentLoaded', () => {
       auth.init();
       appUI.init();
-      // hide auth area if logged in
+      // ensure visibility follows login state (don't re-init)
       appUI.updateAuthVisibility();
-    }
-
-    window.addEventListener('DOMContentLoaded', () => {
-      initApp();
     });
   </script>
 
