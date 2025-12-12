@@ -1,10 +1,14 @@
-// app.js
-const API = ""; // same-origin (keep empty for same origin)
+// app.js (robust / defensive version)
+const API = ""; // same-origin
 
-// helpers
+/* ---------- helpers ---------- */
 function showMessage(text, type = "error") {
   const el = document.getElementById("message");
-  if (!el) return;
+  if (!el) {
+    // fallback to alert for very broken pages
+    alert(text);
+    return;
+  }
   el.textContent = text;
   el.classList.remove("error", "success");
   el.classList.add(type === "error" ? "error" : "success");
@@ -24,16 +28,32 @@ async function parseJSONSafe(res) {
 
 function tokenHeader() {
   const token = localStorage.getItem("token");
-  return token ? { "Authorization": `Bearer ${token}` } : {};
+  return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
 function safeFetch(url, opts = {}) {
-  // wrapper to always use same-origin API prefix
   return fetch(`${API}${url}`, opts);
 }
 
-// auth
+/* ---------- utility: safe element/get value ---------- */
+function el(id) {
+  return document.getElementById(id);
+}
+function valOf(...ids) {
+  // return first non-empty element value; if element missing throw controlled error
+  for (const id of ids) {
+    const e = el(id);
+    if (e) return e.value;
+  }
+  throw new Error(`Missing element(s): ${ids.join(" / ")}`);
+}
+
+/* ---------- auth: signup/login ---------- */
 async function signup(username, password, formEl) {
+  if (!username || !password) {
+    showMessage("Username and password required", "error");
+    return false;
+  }
   try {
     const res = await safeFetch("/auth/signup", {
       method: "POST",
@@ -49,12 +69,16 @@ async function signup(username, password, formEl) {
     if (formEl && typeof formEl.reset === "function") formEl.reset();
     return true;
   } catch (e) {
-    showMessage("Network error: " + e.message, "error");
+    showMessage("Network error: " + (e.message || e), "error");
     return false;
   }
 }
 
 async function login(username, password, formEl) {
+  if (!username || !password) {
+    showMessage("Username and password required", "error");
+    return false;
+  }
   try {
     const res = await safeFetch("/auth/login", {
       method: "POST",
@@ -66,36 +90,56 @@ async function login(username, password, formEl) {
       showMessage(data.detail || data._raw || "Login failed", "error");
       return false;
     }
-    // server returns access_token
     localStorage.setItem("token", data.access_token);
     if (formEl && typeof formEl.reset === "function") formEl.reset();
     showApp();
     await fetchPeople();
     return true;
   } catch (e) {
-    showMessage("Network error: " + e.message, "error");
+    showMessage("Network error: " + (e.message || e), "error");
     return false;
   }
 }
 
-function logout() {
-  localStorage.removeItem("token");
-  showAuth();
-}
-
-// CRUD
+/* ---------- CRUD ---------- */
+// createPerson: accepts either a real formElement (with named inputs) or reads IDs directly.
+// It tolerates both `name` and `p-name` and also `roll` / `p-roll`.
 async function createPerson(formEl) {
-  if (!formEl || typeof formEl.reset !== "function") {
-    showMessage("Internal error: invalid form", "error");
-    return;
-  }
-
   try {
+    // Prefer reading from the provided form element's fields (if it's the real HTMLFormElement)
+    let nameVal, rollVal, ageVal, genderVal;
+    if (formEl && typeof formEl === "object" && typeof formEl.reset === "function") {
+      // try multiple ways to fetch values safely
+      try {
+        nameVal = formEl.name ? formEl.name.value.trim() : (formEl.querySelector("#name, #p-name")?.value || "").trim();
+      } catch {}
+      try {
+        rollVal = formEl.roll ? formEl.roll.value.trim() : (formEl.querySelector("#roll, #p-roll")?.value || "").trim();
+      } catch {}
+      try {
+        ageVal = formEl.age ? formEl.age.value : (formEl.querySelector("#age, #p-age")?.value || "");
+      } catch {}
+      try {
+        genderVal = formEl.gender ? formEl.gender.value : (formEl.querySelector("#gender, #p-gender")?.value || "");
+      } catch {}
+    }
+
+    // fallback: grab by IDs (handles older or newer markup)
+    nameVal = (nameVal || "").trim() || (el("name")?.value || "").trim() || (el("p-name")?.value || "").trim();
+    rollVal = (rollVal || "").trim() || (el("roll")?.value || "").trim() || (el("p-roll")?.value || "").trim();
+    ageVal = (ageVal !== undefined && ageVal !== null && String(ageVal) !== "") ? Number(ageVal) : (el("age")?.value || el("p-age")?.value || "");
+    genderVal = (genderVal || "") || (el("gender")?.value || el("p-gender")?.value || "");
+
+    if (!nameVal || !rollVal || genderVal === "" || ageVal === "" || Number.isNaN(Number(ageVal))) {
+      showMessage("Please fill name, roll, age and gender correctly", "error");
+      return;
+    }
+
     const body = {
-      name: formEl.name.value.trim(),
-      roll: formEl.roll.value.trim(),
-      age: Number(formEl.age.value),
-      gender: formEl.gender.value,
+      name: nameVal,
+      roll: rollVal,
+      age: Number(ageVal),
+      gender: genderVal,
     };
 
     const res = await safeFetch("/persons", {
@@ -114,20 +158,17 @@ async function createPerson(formEl) {
       return;
     }
     showMessage("Person created", "success");
-    formEl.reset();
-    document.getElementById("people-list").scrollIntoView({ behavior: "smooth" });
+    if (formEl && typeof formEl.reset === "function") formEl.reset();
     await fetchPeople();
   } catch (e) {
-    showMessage("Network error: " + e.message, "error");
+    showMessage("Network error: " + (e.message || e), "error");
   }
 }
 
 async function fetchPeople(search = "") {
   try {
     const url = search ? `/persons?search=${encodeURIComponent(search)}` : "/persons";
-    const res = await safeFetch(url, {
-      headers: tokenHeader(),
-    });
+    const res = await safeFetch(url, { headers: tokenHeader() });
 
     if (res.status === 401) {
       showMessage("Session expired", "error");
@@ -142,17 +183,19 @@ async function fetchPeople(search = "") {
     }
     renderPeople(data.items || []);
   } catch (e) {
-    showMessage("Network error: " + e.message, "error");
+    showMessage("Network error: " + (e.message || e), "error");
   }
 }
 
 function renderPeople(items) {
-  const ul = document.getElementById("people-list");
-  if (!ul) return;
+  const ul = el("people-list");
+  if (!ul) {
+    showMessage("Missing people-list element in DOM", "error");
+    return;
+  }
   ul.innerHTML = "";
 
   items.forEach((p) => {
-    // choose the id the API expects for per-user lookup: user_person_id if present else id
     const apiId = p.user_person_id != null ? p.user_person_id : p.id;
     const displayId = p.user_person_id != null ? `${p.user_person_id} (user)` : p.id;
 
@@ -160,7 +203,8 @@ function renderPeople(items) {
     li.className = "person";
     li.innerHTML = `
       <div class="meta">
-        <strong>${escapeHtml(p.name)}</strong> <span class="small">[Roll: ${escapeHtml(p.roll)}]</span><br/>
+        <strong>${escapeHtml(p.name)}</strong>
+        <span class="small">[Roll: ${escapeHtml(p.roll)}]</span><br/>
         <span class="small">Age: ${escapeHtml(String(p.age))} • Gender: ${escapeHtml(p.gender)} • ID: ${escapeHtml(String(displayId))}</span>
       </div>
       <div class="actions">
@@ -171,8 +215,6 @@ function renderPeople(items) {
     ul.appendChild(li);
   });
 
-  // wire edit/delete using event delegation for robustness
-  // attach once (idempotent)
   if (!ul._delegationAttached) {
     ul.addEventListener("click", delegatedClick);
     ul._delegationAttached = true;
@@ -221,7 +263,7 @@ async function onDelete(e) {
     showMessage("Deleted", "success");
     await fetchPeople();
   } catch (err) {
-    showMessage("Network error: " + err.message, "error");
+    showMessage("Network error: " + (err.message || err), "error");
   } finally {
     btn.disabled = prevDisabled;
   }
@@ -248,30 +290,46 @@ async function onEdit(e) {
       showMessage(data.detail || data._raw || "Fetch failed", "error");
       return;
     }
-    // populate edit form (use form fields with ids: edit-id, edit-name, edit-roll, edit-age, edit-gender)
-    document.getElementById("edit-id").value = id; // IMPORTANT: store the API-lookup id here
-    document.getElementById("edit-name").value = data.name || "";
-    document.getElementById("edit-roll").value = data.roll || "";
-    document.getElementById("edit-age").value = data.age != null ? data.age : "";
-    document.getElementById("edit-gender").value = data.gender || "";
+    // set edit-id to the API lookup id (user_person_id or id)
+    const editIdEl = el("edit-id") || el("edit-id-hidden") || null;
+    if (editIdEl) editIdEl.value = id;
+    // populate fields (try multiple id variants)
+    const setIfExists = (ids, value) => {
+      for (const i of ids) {
+        const ee = el(i);
+        if (ee) {
+          ee.value = value != null ? value : "";
+          return;
+        }
+      }
+    };
+    setIfExists(["edit-name", "name"], data.name || "");
+    setIfExists(["edit-roll", "roll"], data.roll || "");
+    setIfExists(["edit-age", "age"], data.age != null ? data.age : "");
+    setIfExists(["edit-gender", "gender"], data.gender || "");
     window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
   } catch (err) {
-    showMessage("Network error: " + err.message, "error");
+    showMessage("Network error: " + (err.message || err), "error");
   }
 }
 
 async function putPerson() {
-  const id = String(document.getElementById("edit-id").value || "").trim();
+  const id = el("edit-id")?.value || el("edit-id-hidden")?.value || "";
   if (!id) {
     showMessage("No person selected for PUT", "error");
     return;
   }
   const payload = {
-    name: document.getElementById("edit-name").value.trim(),
-    roll: document.getElementById("edit-roll").value.trim(),
-    age: Number(document.getElementById("edit-age").value),
-    gender: document.getElementById("edit-gender").value,
+    name: el("edit-name")?.value?.trim() || el("name")?.value?.trim() || "",
+    roll: el("edit-roll")?.value?.trim() || el("roll")?.value?.trim() || "",
+    age: Number(el("edit-age")?.value ?? el("age")?.value ?? ""),
+    gender: el("edit-gender")?.value || el("gender")?.value || "",
   };
+  if (!payload.name || !payload.roll || payload.gender === "" || String(payload.age) === "NaN") {
+    showMessage("Please provide all fields for PUT", "error");
+    return;
+  }
+
   try {
     const res = await safeFetch(`/persons/${encodeURIComponent(id)}`, {
       method: "PUT",
@@ -291,24 +349,25 @@ async function putPerson() {
     showMessage("Person replaced", "success");
     await fetchPeople();
   } catch (err) {
-    showMessage("Network error: " + err.message, "error");
+    showMessage("Network error: " + (err.message || err), "error");
   }
 }
 
 async function patchPerson() {
-  const id = String(document.getElementById("edit-id").value || "").trim();
+  const id = el("edit-id")?.value || el("edit-id-hidden")?.value || "";
   if (!id) {
     showMessage("No person selected for PATCH", "error");
     return;
   }
   const payload = {};
-  const n = document.getElementById("edit-name").value.trim();
-  const r = document.getElementById("edit-roll").value.trim();
-  const a = document.getElementById("edit-age").value;
-  const g = document.getElementById("edit-gender").value;
+  const n = el("edit-name")?.value?.trim() || el("name")?.value?.trim() || "";
+  const r = el("edit-roll")?.value?.trim() || el("roll")?.value?.trim() || "";
+  const a = el("edit-age")?.value ?? el("age")?.value;
+  const g = el("edit-gender")?.value || el("gender")?.value || "";
+
   if (n) payload.name = n;
   if (r) payload.roll = r;
-  if (a !== "") payload.age = Number(a);
+  if (a !== "" && a !== undefined && a !== null) payload.age = Number(a);
   if (g) payload.gender = g;
 
   if (Object.keys(payload).length === 0) {
@@ -335,26 +394,21 @@ async function patchPerson() {
     showMessage("Person updated (partial)", "success");
     await fetchPeople();
   } catch (err) {
-    showMessage("Network error: " + err.message, "error");
+    showMessage("Network error: " + (err.message || err), "error");
   }
 }
 
-// UI wiring
+/* ---------- UI helpers ---------- */
 function showApp() {
-  const authEl = document.getElementById("auth");
-  const appEl = document.getElementById("app");
-  if (authEl) authEl.classList.add("hidden");
-  if (appEl) appEl.classList.remove("hidden");
+  el("auth")?.classList.add("hidden");
+  el("app")?.classList.remove("hidden");
 }
 function showAuth() {
-  const authEl = document.getElementById("auth");
-  const appEl = document.getElementById("app");
-  if (appEl) appEl.classList.add("hidden");
-  if (authEl) authEl.classList.remove("hidden");
+  el("app")?.classList.add("hidden");
+  el("auth")?.classList.remove("hidden");
 }
-
 function escapeHtml(s) {
-  return String(s)
+  return String(s ?? "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
@@ -362,62 +416,67 @@ function escapeHtml(s) {
     .replace(/'/g, "&#039;");
 }
 
-// startup wiring
+/* ---------- startup wiring (defensive) ---------- */
 document.addEventListener("DOMContentLoaded", () => {
-  if (localStorage.getItem("token")) {
-    showApp();
-    fetchPeople();
-  } else {
-    showAuth();
-  }
+  try {
+    // initial view
+    if (localStorage.getItem("token")) {
+      showApp();
+      fetchPeople();
+    } else {
+      showAuth();
+    }
 
-  // signup
-  const signupForm = document.getElementById("signup-form");
-  if (signupForm) {
-    signupForm.addEventListener("submit", (e) => {
-      e.preventDefault();
-      const u = document.getElementById("signup-username").value.trim();
-      const p = document.getElementById("signup-password").value;
-      signup(u, p, signupForm);
-    });
-  }
+    // signup form
+    const signupForm = el("signup-form");
+    if (signupForm) {
+      signupForm.addEventListener("submit", (e) => {
+        e.preventDefault();
+        const u = el("signup-username")?.value?.trim() || el("signup-user")?.value?.trim() || "";
+        const p = el("signup-password")?.value || "";
+        signup(u, p, signupForm);
+      });
+    }
 
-  // login
-  const loginForm = document.getElementById("login-form");
-  if (loginForm) {
-    loginForm.addEventListener("submit", (e) => {
-      e.preventDefault();
-      const u = document.getElementById("login-username").value.trim();
-      const p = document.getElementById("login-password").value;
-      login(u, p, loginForm);
-    });
-  }
+    // login form
+    const loginForm = el("login-form");
+    if (loginForm) {
+      loginForm.addEventListener("submit", (e) => {
+        e.preventDefault();
+        const u = el("login-username")?.value?.trim() || el("login-user")?.value?.trim() || "";
+        const p = el("login-password")?.value || "";
+        login(u, p, loginForm);
+      });
+    }
 
-  // logout
-  const logoutBtn = document.getElementById("logout");
-  if (logoutBtn) logoutBtn.addEventListener("click", logout);
+    // logout
+    el("logout")?.addEventListener("click", logout);
 
-  // create person - pass real form element
-  const createForm = document.getElementById("create-form");
-  if (createForm) {
-    createForm.addEventListener("submit", (e) => {
-      e.preventDefault();
-      createPerson(createForm);
-    });
-  }
+    // create person
+    const createForm = el("create-form");
+    if (createForm) {
+      createForm.addEventListener("submit", (e) => {
+        e.preventDefault();
+        createPerson(createForm);
+      });
+    } else {
+      // support older markup where inputs are outside a form or use different ids
+      const createBtn = el("create-btn") || el("add-person");
+      if (createBtn) createBtn.addEventListener("click", () => createPerson(null));
+    }
 
-  // search
-  const btnSearch = document.getElementById("btn-search");
-  if (btnSearch) {
-    btnSearch.addEventListener("click", () => {
-      const q = document.getElementById("search").value.trim();
+    // search button
+    el("btn-search")?.addEventListener("click", () => {
+      const q = (el("search")?.value || el("q")?.value || "").trim();
       fetchPeople(q);
     });
-  }
 
-  // put/patch buttons
-  const btnPut = document.getElementById("btn-put");
-  if (btnPut) btnPut.addEventListener("click", putPerson);
-  const btnPatch = document.getElementById("btn-patch");
-  if (btnPatch) btnPatch.addEventListener("click", patchPerson);
+    // put/patch
+    el("btn-put")?.addEventListener("click", putPerson);
+    el("btn-patch")?.addEventListener("click", patchPerson);
+  } catch (e) {
+    // defensive fallback: show error to user
+    showMessage("Startup error: " + (e.message || e), "error");
+    console.error(e);
+  }
 });
