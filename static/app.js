@@ -4,8 +4,8 @@ const API = ""; // same-origin (keep empty for same origin)
 // helpers
 function showMessage(text, type = "error") {
   const el = document.getElementById("message");
+  if (!el) return;
   el.textContent = text;
-  // clear classes except hidden
   el.classList.remove("error", "success");
   el.classList.add(type === "error" ? "error" : "success");
   el.classList.remove("hidden");
@@ -46,7 +46,6 @@ async function signup(username, password, formEl) {
       return false;
     }
     showMessage("Signup success — please login", "success");
-    // optional: reset signup form
     if (formEl && typeof formEl.reset === "function") formEl.reset();
     return true;
   } catch (e) {
@@ -67,6 +66,7 @@ async function login(username, password, formEl) {
       showMessage(data.detail || data._raw || "Login failed", "error");
       return false;
     }
+    // server returns access_token
     localStorage.setItem("token", data.access_token);
     if (formEl && typeof formEl.reset === "function") formEl.reset();
     showApp();
@@ -85,7 +85,6 @@ function logout() {
 
 // CRUD
 async function createPerson(formEl) {
-  // ensure we have the actual HTMLFormElement
   if (!formEl || typeof formEl.reset !== "function") {
     showMessage("Internal error: invalid form", "error");
     return;
@@ -98,6 +97,7 @@ async function createPerson(formEl) {
       age: Number(formEl.age.value),
       gender: formEl.gender.value,
     };
+
     const res = await safeFetch("/persons", {
       method: "POST",
       headers: Object.assign({ "Content-Type": "application/json" }, tokenHeader()),
@@ -105,7 +105,6 @@ async function createPerson(formEl) {
     });
     const data = await parseJSONSafe(res);
     if (!res.ok) {
-      // if unauthorized, force logout
       if (res.status === 401) {
         showMessage("Session expired", "error");
         logout();
@@ -115,8 +114,7 @@ async function createPerson(formEl) {
       return;
     }
     showMessage("Person created", "success");
-    formEl.reset(); // call reset on the real form element
-    // scroll to people list and refresh
+    formEl.reset();
     document.getElementById("people-list").scrollIntoView({ behavior: "smooth" });
     await fetchPeople();
   } catch (e) {
@@ -150,27 +148,35 @@ async function fetchPeople(search = "") {
 
 function renderPeople(items) {
   const ul = document.getElementById("people-list");
+  if (!ul) return;
   ul.innerHTML = "";
+
   items.forEach((p) => {
+    // choose the id the API expects for per-user lookup: user_person_id if present else id
+    const apiId = p.user_person_id != null ? p.user_person_id : p.id;
+    const displayId = p.user_person_id != null ? `${p.user_person_id} (user)` : p.id;
+
     const li = document.createElement("li");
     li.className = "person";
-    // use template but keep it safe-ish (we assume server data is trusted here)
     li.innerHTML = `
       <div class="meta">
         <strong>${escapeHtml(p.name)}</strong> <span class="small">[Roll: ${escapeHtml(p.roll)}]</span><br/>
-        <span class="small">Age: ${escapeHtml(String(p.age))} • Gender: ${escapeHtml(p.gender)} • ID: ${escapeHtml(String(p.id))}</span>
+        <span class="small">Age: ${escapeHtml(String(p.age))} • Gender: ${escapeHtml(p.gender)} • ID: ${escapeHtml(String(displayId))}</span>
       </div>
       <div class="actions">
-        <button data-id="${p.id}" class="btn-edit">Edit</button>
-        <button data-id="${p.id}" class="btn-delete">Delete</button>
+        <button data-api-id="${apiId}" class="btn-edit">Edit</button>
+        <button data-api-id="${apiId}" class="btn-delete">Delete</button>
       </div>
     `;
     ul.appendChild(li);
   });
 
   // wire edit/delete using event delegation for robustness
-  ul.removeEventListener("click", delegatedClick);
-  ul.addEventListener("click", delegatedClick);
+  // attach once (idempotent)
+  if (!ul._delegationAttached) {
+    ul.addEventListener("click", delegatedClick);
+    ul._delegationAttached = true;
+  }
 }
 
 function delegatedClick(ev) {
@@ -188,14 +194,13 @@ function delegatedClick(ev) {
 
 async function onDelete(e) {
   const btn = e.currentTarget;
-  const id = String(btn.dataset.id || "").trim();
+  const id = String(btn.dataset.apiId || "").trim();
   if (!id) {
     showMessage("Invalid id for delete", "error");
     return;
   }
   if (!confirm("Delete person id " + id + " ?")) return;
 
-  // disable button while request in-flight
   const prevDisabled = btn.disabled;
   btn.disabled = true;
   try {
@@ -223,7 +228,8 @@ async function onDelete(e) {
 }
 
 async function onEdit(e) {
-  const id = String(e.currentTarget.dataset.id || "").trim();
+  const btn = e.currentTarget;
+  const id = String(btn.dataset.apiId || "").trim();
   if (!id) {
     showMessage("Invalid id for edit", "error");
     return;
@@ -242,8 +248,8 @@ async function onEdit(e) {
       showMessage(data.detail || data._raw || "Fetch failed", "error");
       return;
     }
-    // populate edit form
-    document.getElementById("edit-id").value = data.id;
+    // populate edit form (use form fields with ids: edit-id, edit-name, edit-roll, edit-age, edit-gender)
+    document.getElementById("edit-id").value = id; // IMPORTANT: store the API-lookup id here
     document.getElementById("edit-name").value = data.name || "";
     document.getElementById("edit-roll").value = data.roll || "";
     document.getElementById("edit-age").value = data.age != null ? data.age : "";
@@ -335,12 +341,16 @@ async function patchPerson() {
 
 // UI wiring
 function showApp() {
-  document.getElementById("auth").classList.add("hidden");
-  document.getElementById("app").classList.remove("hidden");
+  const authEl = document.getElementById("auth");
+  const appEl = document.getElementById("app");
+  if (authEl) authEl.classList.add("hidden");
+  if (appEl) appEl.classList.remove("hidden");
 }
 function showAuth() {
-  document.getElementById("app").classList.add("hidden");
-  document.getElementById("auth").classList.remove("hidden");
+  const authEl = document.getElementById("auth");
+  const appEl = document.getElementById("app");
+  if (appEl) appEl.classList.add("hidden");
+  if (authEl) authEl.classList.remove("hidden");
 }
 
 function escapeHtml(s) {
@@ -354,7 +364,6 @@ function escapeHtml(s) {
 
 // startup wiring
 document.addEventListener("DOMContentLoaded", () => {
-  // if logged in
   if (localStorage.getItem("token")) {
     showApp();
     fetchPeople();
@@ -364,39 +373,51 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // signup
   const signupForm = document.getElementById("signup-form");
-  signupForm.addEventListener("submit", (e) => {
-    e.preventDefault();
-    const u = document.getElementById("signup-username").value.trim();
-    const p = document.getElementById("signup-password").value;
-    signup(u, p, signupForm);
-  });
+  if (signupForm) {
+    signupForm.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const u = document.getElementById("signup-username").value.trim();
+      const p = document.getElementById("signup-password").value;
+      signup(u, p, signupForm);
+    });
+  }
 
   // login
   const loginForm = document.getElementById("login-form");
-  loginForm.addEventListener("submit", (e) => {
-    e.preventDefault();
-    const u = document.getElementById("login-username").value.trim();
-    const p = document.getElementById("login-password").value;
-    login(u, p, loginForm);
-  });
+  if (loginForm) {
+    loginForm.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const u = document.getElementById("login-username").value.trim();
+      const p = document.getElementById("login-password").value;
+      login(u, p, loginForm);
+    });
+  }
 
   // logout
-  document.getElementById("logout").addEventListener("click", logout);
+  const logoutBtn = document.getElementById("logout");
+  if (logoutBtn) logoutBtn.addEventListener("click", logout);
 
   // create person - pass real form element
   const createForm = document.getElementById("create-form");
-  createForm.addEventListener("submit", (e) => {
-    e.preventDefault();
-    createPerson(createForm);
-  });
+  if (createForm) {
+    createForm.addEventListener("submit", (e) => {
+      e.preventDefault();
+      createPerson(createForm);
+    });
+  }
 
   // search
-  document.getElementById("btn-search").addEventListener("click", () => {
-    const q = document.getElementById("search").value.trim();
-    fetchPeople(q);
-  });
+  const btnSearch = document.getElementById("btn-search");
+  if (btnSearch) {
+    btnSearch.addEventListener("click", () => {
+      const q = document.getElementById("search").value.trim();
+      fetchPeople(q);
+    });
+  }
 
-  // put/patch
-  document.getElementById("btn-put").addEventListener("click", putPerson);
-  document.getElementById("btn-patch").addEventListener("click", patchPerson);
+  // put/patch buttons
+  const btnPut = document.getElementById("btn-put");
+  if (btnPut) btnPut.addEventListener("click", putPerson);
+  const btnPatch = document.getElementById("btn-patch");
+  if (btnPatch) btnPatch.addEventListener("click", patchPerson);
 });
