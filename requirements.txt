@@ -1,0 +1,6 @@
+sqlalchemy==1.4.49
+aiosqlite==0.18.0
+passlib[bcrypt]==1.7.4
+bcrypt==3.2.0
+python-jose==3.3.0
+fastapi

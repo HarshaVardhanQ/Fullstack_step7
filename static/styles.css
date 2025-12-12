@@ -1,0 +1,139 @@
+/* Root colors */
+:root {
+  --bg: #fdfdfd;
+  --text: #222;
+  --muted: #666;
+  --accent: #0b76ff;
+  --error: #ff4d4f;
+  --success: #52c41a;
+}
+
+/* Body */
+body {
+  font-family: Arial, sans-serif;
+  margin: 0;
+  padding: 1rem;
+  background: var(--bg);
+  color: var(--text);
+}
+
+main {
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+/* Forms */
+form {
+  margin-bottom: 20px;
+}
+
+input, select, button {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  margin: 6px 0;
+  border-radius: 6px;
+  border: 1px solid #ddd;
+  box-sizing: border-box;
+}
+
+button {
+  background: var(--accent);
+  color: white;
+  border: none;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+button:hover {
+  background: #095ec6;
+}
+
+/* Topbar */
+.topbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 10px;
+}
+
+/* Message Box */
+#message {
+  padding: 12px;
+  border-radius: 6px;
+  margin-bottom: 10px;
+  font-weight: bold;
+}
+
+#message.error {
+  background: #ffecec;
+  color: var(--error);
+  border: 1px solid var(--error);
+}
+
+#message.success {
+  background: #e6ffea;
+  color: var(--success);
+  border: 1px solid var(--success);
+}
+
+.hidden {
+  display: none;
+}
+
+/* People List */
+ul#people-list {
+  list-style: none;
+  padding-left: 0;
+}
+
+li.person {
+  border: 1px solid #eee;
+  border-radius: 6px;
+  padding: 10px;
+  margin-bottom: 8px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.person .meta {
+  flex: 1;
+}
+
+.person .meta strong {
+  font-size: 1.1rem;
+}
+
+.person .meta .small {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.person .actions button {
+  margin-left: 5px;
+}
+
+/* Search bar */
+.search-bar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.search-bar input {
+  flex: 1;
+}
+
+/* Responsive */
+@media (max-width: 600px) {
+  .search-bar {
+    flex-direction: column;
+  }
+  .person {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .person .actions {
+    margin-top: 6px;
+  }
+}

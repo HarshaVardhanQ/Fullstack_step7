@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>People Manager</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main>
+    <h1>People Manager</h1>
+
+    <!-- Message box -->
+    <div id="message" class="hidden"></div>
+
+    <!-- Authentication Section -->
+    <section id="auth">
+      <h2>Signup</h2>
+      <form id="signup-form" onsubmit="event.preventDefault()">
+        <input id="signup-username" type="text" placeholder="Username" required>
+        <input id="signup-password" type="password" placeholder="Password" required>
+        <button type="submit">Signup</button>
+      </form>
+
+      <h2>Login</h2>
+      <form id="login-form" onsubmit="event.preventDefault()">
+        <input id="login-username" type="text" placeholder="Username" required>
+        <input id="login-password" type="password" placeholder="Password" required>
+        <button type="submit">Login</button>
+      </form>
+    </section>
+
+    <!-- Main App Section -->
+    <section id="app" class="hidden">
+      <div class="topbar">
+        <button id="logout" type="button">Logout</button>
+      </div>
+
+      <h2>Create Person</h2>
+      <form id="create-form" onsubmit="event.preventDefault()">
+        <input id="p-name" type="text" placeholder="Name" required>
+        <input id="p-roll" type="text" placeholder="Roll" required>
+        <input id="p-age" type="number" placeholder="Age" min="0" required>
+        <select id="p-gender" required>
+          <option value="">Select Gender</option>
+          <option>Male</option>
+          <option>Female</option>
+          <option>Other</option>
+        </select>
+        <button type="submit">Add Person</button>
+      </form>
+
+      <h2>People</h2>
+      <div class="search-bar">
+        <input id="search" placeholder="Search by name">
+        <button id="btn-search" type="button">Search</button>
+      </div>
+      <ul id="people-list"></ul>
+
+      <h3>Edit Person</h3>
+      <form id="edit-form" onsubmit="event.preventDefault()">
+        <input id="edit-id" type="hidden">
+        <input id="edit-name" type="text" placeholder="Name">
+        <input id="edit-roll" type="text" placeholder="Roll">
+        <input id="edit-age" type="number" placeholder="Age" min="0">
+        <select id="edit-gender">
+          <option value="">(no change)</option>
+          <option>Male</option>
+          <option>Female</option>
+          <option>Other</option>
+        </select>
+        <button id="btn-put" type="button">PUT (replace)</button>
+        <button id="btn-patch" type="button">PATCH (partial)</button>
+      </form>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
